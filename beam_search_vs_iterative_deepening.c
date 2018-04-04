@@ -9,16 +9,21 @@
 /***							      	   ***/
 /*********************************************************************/
 /*********************************************************************/
-
-
+#include<omp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <limits.h>  // pour INT_MAX
+#include<sys/time.h>
 
 
 #define MAX +1	// Niveau Maximisant
 #define MIN -1  // Niveau Minimisant
 #define INFINI INT_MAX
+
+#define KGRN "\x1B[32m"
+#define KRED "\x1B[31m"
+#define KWHT "\x1B[37m"
 
 
 // Type d'une configuration formant l'espace de recherche
@@ -34,6 +39,100 @@ struct config {
 						// 'e'ffectué
 };
 
+// Pinalite pour le pion isole
+int PawnIsolated = -30;
+
+// Pinalite pour le pion doublé
+int PawnDouble = -30;
+
+// Pour valoriser une tour sur une colonne ouverte
+int RookOpenFile = 70;
+
+// Pour valoriser une tour sur une colonne semi ouverte
+int RookSemiOpenFile = 50;
+
+// Pour valoriser une reine sur une colonne ouverte
+int QueenOpenFile = 50;
+
+// Pour valoriser une reine sur une colonne semi ouverte
+int QueenSemiOpenFile = 30;
+
+// La valeur d'un pair de fous
+int BishopPair = 50;
+
+// L'evaluation de l'echequier
+// Les positions sont comme suit : a1, b1, c1, ...
+//                                 a2, b2, c2, ...
+//Donc un pion sur d2 pour les blancs est evalue a -50, si il bouge a d4, il est a 90, ...
+
+int PawnTable[64] = {
+	0	    ,  	0   	,   0   	,   0   	,   0   	,  	0	    ,	0	    ,	0	    ,
+	50	    ,  	50	    ,   0	    ,   -10     ,   -10     ,  	0	    ,	50	    ,	50	    ,
+	25	    ,  	0	    ,  	0	    ,  	25	    ,  	25	    ,  	0	    ,	0	    ,	25	    ,
+	0	    ,  	0	    ,  	50	    ,  	90	    ,  	90	    ,  	50	    ,	0	    ,	0	    ,
+	25	    ,  	25	    ,  	25	    ,  	50	    ,  	50	    ,  	25	    ,	25	    ,	25	    ,
+	50      ,  	50	    ,  	50	    ,  	90	    ,  	90	    ,  	50	    ,	50	    ,	50	    ,
+	90	    ,   90 	    ,  	90	    ,  	90	    ,  	90	    ,  	90	    ,	90	    ,	90	    ,
+	0	    ,  	0	    ,  	0	    ,  	0	    ,  	0	    ,  	0	    ,	0	    ,	0
+};
+
+int KnightTable[64] = {
+	0   	,	-50	    ,	0	    ,	0	    ,	0	    ,	0	    ,	-50 	,	0   	,
+	0   	,	0	    ,	0	    ,	25	    ,	25	    ,	0	    ,	0	    ,	0   	,
+	0	    ,	0	    ,	50	    ,	50	    ,	50	    ,	50	    ,	0	    ,	0	    ,
+	0	    ,	25	    ,	50	    ,	90	    ,	90	    ,	50	    ,	25	    ,	0   	,
+	25	    ,	50	    ,	70	    ,	90	    ,	90	    ,	70	    ,	50	    ,	25	    ,
+	25	    ,  	50	    ,	50	    ,	90	    ,	90	    ,	50	    ,	50	    ,	25	    ,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0   	,
+	0	    ,	0	    ,	0	    ,	0	    ,	0	    ,	0	    ,	0	    ,	0
+};
+
+int BishopTable[64] = {
+	0	    ,	0	    ,	-50	    ,	0	    ,	0	    ,	-50	    ,	0	    ,	0   	,
+	0	    ,  	0	    ,	0	    ,	50	    ,	50	    ,	0	    ,	0	    ,	0	    ,
+	0	    ,	0	    ,	50	    ,	70	    ,	70	    ,	50  	,	0	    ,	0	    ,
+	0	    ,	50	    ,	70	    ,	90	    ,	90	    ,	70	    ,	50	    ,	0   	,
+	0	    ,	50	    ,	70	    ,	90	    ,	90	    ,	70	    ,	50	    ,	0   	,
+	0	    ,	0	    ,	50	    ,	70	    ,	70	    ,	50	    ,	0	    ,	0   	,
+	0	    ,	0	    ,	0	    ,	50	    ,	50	    ,	0   	,	0	    ,	0   	,
+	0	    ,	0   	,	0	    ,	0	    ,	0	    ,	0   	,	0	    ,	0
+};
+
+int RookTable[64] = {
+    0   	,	0	    ,	25  	,	50	    ,	50	    ,	25	    ,	0	    ,	0	    ,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0   	,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0	    ,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25  	,	0	    ,	0   	,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0	    ,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0	    ,
+	90	    ,	90	    ,	90	    ,	90	    ,	90	    ,	90	    ,	90	    ,	90	    ,
+	0	    ,	0	    ,	25	    ,	50	    ,	50	    ,	25	    ,	0	    ,	0
+};
+
+// l'evaluation du roi pendant la fin de partie
+int KingE[64] = {
+	-500    ,	-50	    ,	0   	,	0   	,	0   	,	0   	,	-50	    ,	-500	,
+	-50     ,	0	    ,	50 	    ,	50	    ,	50	    ,	50	    ,	0   	,	-50     ,
+	0	    ,	50	    ,	90	    ,	90	    ,	90	    ,	90	    ,	50	    ,	0	    ,
+	0	    ,	50	    ,	90	    ,	99	    ,	99	    ,	90	    ,	50	    ,	0	    ,
+	0	    ,	50	    ,	90	    ,	99	    ,	99	    ,	90	    ,	50	    ,	0	    ,
+	0	    ,	50	    ,	90	    ,	90	    ,	90	    ,	90	    ,	50	    ,	0	    ,
+	-50     ,	0	    ,	50	    ,	50	    ,	50	    ,	50	    ,	0	    ,	-50	    ,
+	-500 	,	-50	    ,	0	    ,	0	    ,	0	    ,	0	    ,	-50	    ,	-500
+};
+
+// L'evaluation du roi pendant l'ouverture, on donne la priorite au petit roque (plus sucurise)
+int KingO[64] = {
+	0	    ,	25	    ,	25	    ,	-50     ,	-50 	,	0	    ,	50	    ,	25	    ,
+	-300	,	-300	,	-300	,	-300	,	-300	,	-300	,	-300	,	-300	,
+	-500	,	-500	,	-500	,	-500	,	-500	,	-500	,	-500	,	-500	,
+	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,
+	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,
+	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,
+	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,
+	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700	,	-700
+};
+
 // vecteurs des déplacements par type de piece ...
 // cavalier
 int dC[8][2] = { {-2,+1} , {-1,+2} , {+1,+2} , {+2,+1} , {+2,-1} , {+1,-2} , {-1,-2} , {-2,-1} };
@@ -41,7 +140,7 @@ int dC[8][2] = { {-2,+1} , {-1,+2} , {+1,+2} , {+2,+1} , {+2,-1} , {+1,-2} , {-1
 int D[8][2] = { {+1,0} , {+1,+1} , {0,+1} , {-1,+1} , {-1,0} , {-1,-1} , {0,-1} , {+1,-1} }; 
 
 // evalue avec alpha beta la configuration 'conf' du joueur 'mode' en descendant de 'niv' niveaux
-int minmax_ab( struct config conf, int mode, int niv, int min, int max );
+int minmax_ab( struct config conf, int mode, int niv, int min, int max, long * nb_noeuds, long * nb_coupes);
 
 
 /* Copie la configuration c1 dans c2  */
@@ -75,146 +174,303 @@ int egal(char c1[8][8], char c2[8][8] )
 	return 1;
 } // egal
 
-
-/* Retourne une estimation de la configuration conf */
-
-int estim(struct config conf){
-	/* the values of the pieces */
-	int piece_value[6] = {
-		10, 30, 30, 50, 90, 0
-	};
-	
-	/* The "pcsq" arrays are piece/square tables. They're values
-	   added to the material value of the piece based on the
-	   location of the piece. */
-	
-	int pawn_pcsq[64] = {
-		  0,   0,   0,   0,   0,   0,   0,   0,
-		  5,  10,  15,  20,  20,  15,  10,   5,
-		  4,   8,  12,  16,  16,  12,   8,   4,
-		  3,   6,   9,  12,  12,   9,   6,   3,
-		  2,   4,   6,   8,   8,   6,   4,   2,
-		  1,   2,   3, -10, -10,   3,   2,   1,
-		  0,   0,   0, -40, -40,   0,   0,   0,
-		  0,   0,   0,   0,   0,   0,   0,   0
-	};
-	
-	int knight_pcsq[64] = {
-		-10, -10, -10, -10, -10, -10, -10, -10,
-		-10,   0,   0,   0,   0,   0,   0, -10,
-		-10,   0,   5,   5,   5,   5,   0, -10,
-		-10,   0,   5,  10,  10,   5,   0, -10,
-		-10,   0,   5,  10,  10,   5,   0, -10,
-		-10,   0,   5,   5,   5,   5,   0, -10,
-		-10,   0,   0,   0,   0,   0,   0, -10,
-		-10, -30, -10, -10, -10, -10, -30, -10
-	};
-	
-	int bishop_pcsq[64] = {
-		-10, -10, -10, -10, -10, -10, -10, -10,
-		-10,   0,   0,   0,   0,   0,   0, -10,
-		-10,   0,   5,   5,   5,   5,   0, -10,
-		-10,   0,   5,  10,  10,   5,   0, -10,
-		-10,   0,   5,  10,  10,   5,   0, -10,
-		-10,   0,   5,   5,   5,   5,   0, -10,
-		-10,   0,   0,   0,   0,   0,   0, -10,
-		-10, -10, -20, -10, -10, -20, -10, -10
-	};
-	
-	int king_pcsq[64] = {
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-40, -40, -40, -40, -40, -40, -40, -40,
-		-20, -20, -20, -20, -20, -20, -20, -20,
-		  0,  20,  40, -20,   0, -20,  40,  20
-	};
-	
-	
-	/* The flip array is used to calculate the piece/square
-	   values for DARK pieces. The piece/square value of a
-	   LIGHT pawn is pawn_pcsq[sq] and the value of a DARK
-	   pawn is pawn_pcsq[flip[sq]] */
-	int flip[64] = {
-		 56,  57,  58,  59,  60,  61,  62,  63,
-		 48,  49,  50,  51,  52,  53,  54,  55,
-		 40,  41,  42,  43,  44,  45,  46,  47,
-		 32,  33,  34,  35,  36,  37,  38,  39,
-		 24,  25,  26,  27,  28,  29,  30,  31,
-		 16,  17,  18,  19,  20,  21,  22,  23,
-		  8,   9,  10,  11,  12,  13,  14,  15,
-		  0,   1,   2,   3,   4,   5,   6,   7
-	};
-	
-	int i, j;
-	int pionB = 0, pionN = 0, fouB = 0, fouN = 0, tourB = 0, tourN = 0, reineB = 0, reineN = 0, cB = 0, cN = 0, rB = 0, rN = 0 ;
-	for(i=0; i < 8; i++){
-		for(j=0; j < 8; j++){
-			switch (conf.mat[i][j]) {
-				case 'p' : 
-					pionB += piece_value[0] + pawn_pcsq[i*8 + j]/10 ;
-					break ;
-
-				case 'c' : 
-					cB += piece_value[3] + knight_pcsq[i*8 + j]/10 ;
-					break ;
-				
-				case 'f' : 
-					fouB += piece_value[1] + bishop_pcsq[i*8 + j]/10 ;
-					break ;
-
-				case 't' : 
-					tourB += piece_value[2];
-					break ;
-
-				case 'n' : 
-					reineB += piece_value[4];
-					break ;
-	 
-
-				case 'r':
-					rB = piece_value[4] + king_pcsq[i*8 + j]/10 ;
-					break ;
+int nbrPieces(struct config board, bool type) /// Compter le nombre des piéces
+{
+    int i, j, nbr = 0;
+    if(type)
+    {
+        for(i = 0 ; i <= 7 ; i++)
+        {
+            for(j = 0 ; j <= 7 ; j++)
+            {
+                if(board.mat[i][j] > 0)
+                {
+                    nbr ++;
+                }
+            }
+        }
+    }
+    else
+    {
+        for(i = 0 ; i <= 7 ; i++)
+        {
+            for(j = 0 ; j <= 7 ; j++)
+            {
+                if(board.mat[i][j] < 0)
+                {
+                    nbr ++;
+                }
+            }
+        }
+    }
+    return nbr;
+}
 
 
-				case -'p' : 
-					pionN += piece_value[0] + pawn_pcsq[flip[i*8 + j]]/10 ;
-					break ;
-				
+int estim(struct config board) /// La fonction d'evaluation de la configuration
+{
+    int i, j;
+    int matrice = 0;
+    int isole = 0, rowB, rowN, nbrPionB = 0, nbrPionN = 0, doubl = 0;
+    bool pionPosB_1 = false, pionPosB_2 = false, pionPosB = false;
+    bool pionPosN_1 = false, pionPosN_2 = false, pionPosN = false;
+    int k, rockB_nbrOpen = 0, rockN_nbrOpen = 0, rockValue = 0;
+    int queenN_nbrOpen = 0, queenB_nbrOpen = 0, queenValue = 0;
+    int nbrBishopB = 0, nbrBishopN = 0, bishopValue = 0;
+    int resultat, materiel=0;
+    for(j = 0 ; j <= 7 ; j++)
+    {
+        for(i = 0 ; i <= 7 ; i++)
+        {
+            switch(board.mat[i][j])
+            {
+                case 'p':
+                    materiel += 100;
 
-				case -'c' : 
-					cN += piece_value[3] + knight_pcsq[flip[i*8 + j]]/10 ;
-					break ;
+                    matrice += PawnTable[j + i * 8];
 
-				case -'f' : 
-					fouN += piece_value[1] + bishop_pcsq[flip[i*8 + j]]/10 ;
-					break ;
-				
-				case -'t' : 
-					tourN += piece_value[2];
-					break ;
-				
-				case -'n' : 
-					reineN += piece_value[4];
-					break ;
-				
-				case '-r':
-					rB = piece_value[4] + king_pcsq[flip[i*8 + j]]/10 ;
-					break ;
+                    nbrPionB ++;
+                    pionPosB = true;
+                    if(!pionPosB_1)
+                    {
+                        if(!pionPosB_2)
+                        {
+                            pionPosB_2 = true;
+                            rowB = j;
+                        }
+                        else
+                        {
+                            if (rowB != j)
+                            {
+                                pionPosB_1 = true;
+                            }
+                        }
+                    }
+                break;
+                case -'p':
+                    materiel -= 100;
 
-				default:
-					break ;
+                    matrice -= PawnTable[j + (7 - i) * 8];
 
-			 }
-			}
-		}
-		int score = (pionB + cB + tourB + fouB + reineB + rB) -  (pionN + cN + tourN + fouN + reineN + rN) ;
-		score = 100 * score / 390 ; // pour garder le résultat entre 100 et -100 // 390 reste à vérifier comme valeur maximale
-		return score ;
-	}
+                    nbrPionN ++;
+                    pionPosN = true;
+                    if(!pionPosN_1)
+                    {
+                        if(!pionPosN_2)
+                        {
+                            pionPosN_2 = true;
+                            rowN = j;
+                        }
+                        else
+                        {
+                            if (rowN != j)
+                            {
+                                pionPosN_1 = true;
+                            }
+                        }
+                    }
+                break;
+                case 'C':
+                    materiel += 300;
 
+                    matrice += KnightTable[j + i * 8];
+                break;
+                case -'C':
+                    materiel -= 300;
+
+                    matrice -= KnightTable[j + (7 - i) * 8];
+                break;
+                case 'f':
+                    materiel += 325;
+
+                    matrice += BishopTable[j + i * 8];
+
+                    nbrBishopB ++;
+                break;
+                case -'f':
+                    materiel -= 325;
+
+                    matrice -= BishopTable[j + (7 - i) * 8];
+
+                    nbrBishopN ++;
+                break;
+                case 't':
+                    materiel += 500;
+
+                    matrice += RookTable[j + i * 8];
+
+                    k = 0;
+                    while((k <= 7) && (board.mat[k][j] != 'p'))
+                    {
+                        if(((board.mat[k][j] == 0) || (board.mat[k][j] == 't')) || (board.mat[k][j] < 0))
+                        {
+                            rockB_nbrOpen ++;
+                        }
+                        k++;
+                    }
+                break;
+                case -'t':
+                    materiel -= 500;
+
+                    matrice -= RookTable[j + (7 - i) * 8];
+
+                    k = 7;
+                    while((k >= 0) && (board.mat[k][j] != -'p'))
+                    {
+                        if(((board.mat[k][j] == 0) || (board.mat[k][j] == -'t')) || (board.mat[k][j] < 0))
+                        {
+                            rockN_nbrOpen ++;
+                        }
+                        k --;
+                    }
+                break;
+                case 'n':
+                    materiel += 1000;
+                    k = 0;
+                    while((k <= 7) && (board.mat[k][j] != 'p'))
+                    {
+                        if(((board.mat[k][j] == 0) || (board.mat[k][j] == 'n')) || (board.mat[k][j] < 0))
+                        {
+                            queenB_nbrOpen ++;
+                        }
+                        k++;
+                    }
+                break;
+                case -'n':
+                    materiel -= 1000;
+                    k = 7;
+                    while((k >= 0) && (board.mat[k][j] != -'p'))
+                    {
+                        if(((board.mat[k][j] == 0) || (board.mat[k][j] == -'n')) || (board.mat[k][j] < 0))
+                        {
+                            queenN_nbrOpen ++;
+                        }
+                        k --;
+                    }
+                break;
+                case 'r':
+                    if(nbrPieces(board, true) > 8)
+                    {
+                        matrice += KingO[j + i * 8];
+                    }
+                    if(nbrPieces(board, true) < 7)
+                    {
+                        matrice += KingE[j + i * 8];
+                    }
+                break;
+                case -'r':
+                    if(nbrPieces(board, true) > 8)
+                    {
+                        matrice -= KingO[j + (7 - i) * 8];
+                    }
+                    if(nbrPieces(board, true) < 7)
+                    {
+                        matrice -= KingE[j + (7 - i) * 8];
+                    }
+                break;
+            }
+        }
+
+        if(nbrPionB > 0)
+        {
+            doubl = doubl + nbrPionB - 1;
+        }
+        if(nbrPionN > 0)
+        {
+            doubl = doubl + nbrPionN - 1;
+        }
+        nbrPionB = 0;
+        nbrPionN = 0;
+
+        if(!pionPosB && !pionPosB_1 && pionPosB_2)
+        {
+            isole ++;
+        }
+        if(!pionPosB)
+        {
+            pionPosB_1 = false;
+            pionPosB_2 = false;
+        }
+        pionPosB = false;
+
+        nbrPionN = 0;
+        if(!pionPosN && !pionPosN_1 && pionPosN_2)
+        {
+            isole --;
+        }
+        if(!pionPosN)
+        {
+            pionPosN_1 = false;
+            pionPosN_2 = false;
+        }
+        pionPosN = false;
+
+        if(rockB_nbrOpen == 8)
+        {
+            rockValue += RookOpenFile;
+        }
+        else
+        {
+            if(rockB_nbrOpen > 5)
+            {
+                rockValue += RookSemiOpenFile;
+            }
+        }
+        if(rockN_nbrOpen == 8)
+        {
+            rockValue -= RookOpenFile;
+        }
+        else
+        {
+            if(rockN_nbrOpen > 5)
+            {
+                rockValue -= RookSemiOpenFile;
+            }
+        }
+        rockB_nbrOpen = 0;
+        rockN_nbrOpen = 0;
+
+        if(queenB_nbrOpen == 8)
+        {
+            queenValue += QueenOpenFile;
+        }
+        else
+        {
+            if(queenB_nbrOpen > 5)
+            {
+                queenValue += QueenSemiOpenFile;
+            }
+        }
+        if(queenN_nbrOpen == 8)
+        {
+            queenValue -= QueenOpenFile;
+        }
+        else
+        {
+            if(queenN_nbrOpen > 5)
+            {
+                queenValue -= QueenSemiOpenFile;
+            }
+        }
+        queenB_nbrOpen = 0;
+        queenN_nbrOpen = 0;
+
+        if(nbrBishopB == 2)
+        {
+            bishopValue += BishopPair;
+            nbrBishopB = 0;
+        }
+        if(nbrBishopN == 2)
+        {
+            bishopValue -= BishopPair;
+            nbrBishopN = 0;
+        }
+    }
+    resultat = materiel + doubl * PawnDouble + isole * PawnIsolated + rockValue + queenValue + bishopValue + matrice;
+
+    return resultat;
+}
+ // estim
 
 /***********************************************************/
 /*********** Partie:  Evaluations et Estimations ***********/
@@ -761,7 +1017,8 @@ void generer_succ( struct config conf, int mode, struct config T[], int *n )
 
 	*n = 0;
 
-	if ( mode == MAX ) {		// mode == MAX
+	if ( mode == MAX ) 
+	{		// mode == MAX
 	   for (i=0; i<8; i++)
 	      for (j=0; j<8; j++)
 		 if ( conf.mat[i][j] > 0 )
@@ -779,14 +1036,16 @@ void generer_succ( struct config conf, int mode, struct config T[], int *n )
 	    } // for k
 	}
 
-	else { 				// mode == MIN
+	else 
+	{ 				// mode == MIN
 	   for (i=0; i<8; i++)
 	      for (j=0; j<8; j++)
 		 if ( conf.mat[i][j] < 0 )
 		    deplacementsN(conf, i, j, T, n );
 
 	   // vérifier si le roi est en echec, auquel cas on ne garde que les succ évitants l'échec...
-	   for (k=0; k < *n; k++) {
+	   for (k=0; k < *n; k++) 
+	   {
 		i = T[k].xrN; j = T[k].yrN;
 		// vérifier s'il est menacé dans la config T[k] ...
 		if ( caseMenaceePar( MAX, i, j, T[k] ) ) {
@@ -804,10 +1063,193 @@ void generer_succ( struct config conf, int mode, struct config T[], int *n )
 /***********************************************************************/
 /*********** Partie:  AlphaBeta, Initialisation et affichahe ***********/
 /***********************************************************************/
+int comp (const void * elem1, const void * elem2) 
+{
+    struct config f = *((struct config *)elem1);
+    struct config s = *((struct config *)elem2);
+    if (f.val < s.val) return  1;
+    if (f.val > s.val) return -1;
+    return 0;
+}
 
+void trier_config_table(struct config T [], int n)
+{
+	int i;
+	for (i = 0; i < n; i++)
+		T[i].val = estim(T[i]);
+
+	qsort(T, n, sizeof(T[0]), comp);
+	return;
+}
+
+
+/* MinMax avec elagage alpha-beta + Hill Climbing*/
+int minmax_ab2( struct config conf, int mode, int niv, int alpha, int beta, long * nb_noeuds, long * nb_coupes)
+{
+	
+ 	int n, i, score, score2;
+ 	struct config T[100];
+	*nb_noeuds += 1;
+
+   	if ( feuille(conf, &score) ) 
+		return score;
+
+   	if ( niv == 0 ) 
+		return estim(conf);
+
+   	if ( mode == MAX ) 
+	{
+
+	   generer_succ( conf, MAX, T, &n );
+	   trier_config_table(T, n);
+	  
+	   score = alpha;
+	   for ( i=0; i<n/2; i++ ) 
+	   {
+   	    	score2 = minmax_ab2( T[i], MIN, niv-1, score, beta, nb_noeuds, nb_coupes);
+			if (score2 > score) score = score2;
+			if (score > beta) 
+			{
+				// Coupe Beta
+					*nb_coupes += 1;
+					//printf("Beta %d\n", beta);
+					return beta;   
+			}
+	   } 
+	}
+	else  
+	{ // mode == MIN 
+
+	   generer_succ( conf, MIN, T, &n );
+	   trier_config_table(T, n);
+	  
+	   score = beta;
+	   for ( i=n-1; i >=n/2; i--) 
+	   {
+   	    	score2 = minmax_ab2( T[i], MAX, niv-1, alpha, score, nb_noeuds, nb_coupes);
+			if (score2 < score) score = score2;
+			if (score < alpha) 
+			{
+				// Coupe Alpha
+					*nb_coupes += 1;
+					//printf("Alpha %d\n", alpha);
+					return alpha;   
+	    	}
+	   }
+	}
+
+	return score;
+
+} // minmax_ab
+
+int iterative_deepening(struct config conf, int mode, int niv, int alpha, int beta, long * nb_noeuds, long * nb_coupes)
+{
+	int n,j, i, score, score2;
+ 	struct config T[100];
+
+	if ( feuille(conf, &score) ) 
+		return score;
+
+   	if ( niv == 0 ) 
+		return estim(conf);
+	
+	if (mode == MAX)
+	{
+
+		generer_succ(conf, MAX, T, &n);
+
+		for (i = 0; i < niv; i++)
+		{
+			for (j = 0; j < n; j++)
+			{
+				T[j].val =  minmax_ab(T[j], MIN, i, alpha, beta, nb_noeuds, nb_coupes);
+			}
+
+			trier_config_table(T, n);
+			
+		}
+
+		score = T[0].val;
+	}
+	else //MIN
+	{
+		generer_succ(conf, MIN, T, &n);
+
+		for (i = 0; i < niv; i++)
+		{
+			for (j = n-1; j >= 0; j--)
+			{
+				T[j].val =  minmax_ab(T[j], MAX, i, alpha, beta, nb_noeuds, nb_coupes);
+			}
+
+			trier_config_table(T, n);
+		}
+
+		score = T[n-1].val;
+	}
+	return score;
+}
 
 /* MinMax avec elagage alpha-beta */
-int minmax_ab( struct config conf, int mode, int niv, int alpha, int beta )
+int minmax_ab( struct config conf, int mode, int niv, int alpha, int beta, long * nb_noeuds, long * nb_coupes)
+{
+	
+ 	int n, i, score, score2;
+ 	struct config T[100];
+	*nb_noeuds += 1;
+
+   	if ( feuille(conf, &score) ) 
+		return score;
+
+   	if ( niv == 0 ) 
+		return estim(conf);
+
+   	if ( mode == MAX ) 
+	{
+
+	   generer_succ( conf, MAX, T, &n );
+
+	   score = alpha;
+	   for ( i=0; i<n; i++ ) 
+	   {
+   	    	score2 = minmax_ab( T[i], MIN, niv-1, score, beta, nb_noeuds, nb_coupes);
+			if (score2 > score) score = score2;
+			if (score > beta) 
+			{
+				// Coupe Beta
+					*nb_coupes += 1;
+					//printf("Beta %d\n", beta);
+					return beta;   
+			}
+	   } 
+	}
+	else  
+	{ // mode == MIN 
+
+	   generer_succ( conf, MIN, T, &n );
+
+	   score = beta;
+	   for ( i=0; i<n; i++ ) 
+	   {
+   	    	score2 = minmax_ab( T[i], MAX, niv-1, alpha, score, nb_noeuds, nb_coupes);
+			if (score2 < score) score = score2;
+			if (score < alpha) 
+			{
+				// Coupe Alpha
+					*nb_coupes += 1;
+					//printf("Alpha %d\n", alpha);
+					return alpha;   
+	    	}
+	   }
+	}
+
+	if ( score == +INFINI ) score = +100;
+    if ( score == -INFINI ) score = -100;
+	return score;
+
+} // minmax_ab
+
+int minmax( struct config conf, int mode, int niv)
 {
  	int n, i, score, score2;
  	struct config T[100];
@@ -822,28 +1264,23 @@ int minmax_ab( struct config conf, int mode, int niv, int alpha, int beta )
 
 	   generer_succ( conf, MAX, T, &n );
 
-	   score = alpha;
-	   for ( i=0; i<n; i++ ) {
-   	    	score2 = minmax_ab( T[i], MIN, niv-1, score, beta );
-		if (score2 > score) score = score2;
-		if (score > beta) {
-			// Coupe Beta
-   	      		return beta;   
-	    	}
+	   score = -INFINI;
+	   for ( i=0; i<n; i++ ) 
+	   {
+   	    	score2 = minmax( T[i], MIN, niv-1);
+			if (score2 > score) score = score2;
+		
 	   } 
 	}
 	else  { // mode == MIN 
 
 	   generer_succ( conf, MIN, T, &n );
 
-	   score = beta;
+	   score = +INFINI;
 	   for ( i=0; i<n; i++ ) {
-   	    	score2 = minmax_ab( T[i], MAX, niv-1, alpha, score );
+   	    	score2 = minmax( T[i], MAX, niv-1);
 		if (score2 < score) score = score2;
-		if (score < alpha) {
-			// Coupe Alpha
-   	      		return alpha;   
-	    	}
+	
 	   }
 	}
 
@@ -852,9 +1289,7 @@ int minmax_ab( struct config conf, int mode, int niv, int alpha, int beta )
 
 	return score;
 
-} // minmax_ab
-
-
+}
 /* Intialise la disposition des pieces dans la configuration initiale conf */
 void init( struct config *conf )
 {
@@ -883,7 +1318,6 @@ void init( struct config *conf )
 
 } // init
 
-
 /* Affiche la configuration conf */
 void affich( struct config conf )
 {
@@ -899,8 +1333,14 @@ void affich( struct config conf )
 	for(i=8; i>0; i--)  {
 		printf("    %d", i);
 		for (j=0; j<8; j++)
-			if ( conf.mat[i-1][j] < 0 ) printf("\t -%c", -conf.mat[i-1][j]);
-			else if ( conf.mat[i-1][j] > 0 ) printf("\t +%c", conf.mat[i-1][j]);
+			if ( conf.mat[i-1][j] < 0 ) {
+				printf("\t %s-%c",KRED, -conf.mat[i-1][j]);
+				printf("%s", KWHT);
+			}
+			else if ( conf.mat[i-1][j] > 0 ) {
+				printf("\t%s +%c",KGRN,  conf.mat[i-1][j]);
+				printf("%s", KWHT);
+			}
 				  else printf("\t  ");
 		printf("\n");
 
@@ -921,18 +1361,24 @@ void affich( struct config conf )
 /*********** Programme princiapl ***********/
 /*******************************************/
 
-/*
 
 int main( int argc, char *argv[] )
 {
-   char sy, dy, ch[10];
-   int sx, dx, n, i, j, score, stop, cout, cout2, legal, hauteur, sauter;
-   int cmin, cmax;
+	char sy, dy, ch[10];
+	int sx, dx, n, i, j, score, stop, cout, cout2, legal, hauteur, sauter;
+	int cmin, cmax, mode, cpt;
+   	double stats1[100];
+	double stats2[100];
+	long nb_noeuds1=0;
+	long nb_noeuds2=0;
+	long nb_coupes1 = 0;
+	long nb_coupes2 = 0;
+
 
    struct config T[100], conf, conf1;
 
    if ( argc == 1 ) 
-	hauteur = 4;  // par défaut on fixe la profondeur d'évaluation à 4
+	hauteur = 5;  // par défaut on fixe la profondeur d'évaluation à 4
    else
 	hauteur = atoi( argv[1] ); // sinon elle est récupérée depuis la ligne de commande
 
@@ -941,113 +1387,145 @@ int main( int argc, char *argv[] )
    // Initialise la configuration de départ
    init( &conf );
   
-   printf("\n\nVous êtes les + (Blancs) et je suis les - (Noirs)\n\n");
+   
 
    // Boucle principale du dérouleùment d'une partie ...
    stop = 0;
-   while ( !stop ) {
+   mode = MAX;
+   
+   struct timeval begin, end;
+   int alpha, beta;
+   double result;
+   cpt = 0;
+   nb_noeuds1=0;
+   nb_noeuds2=0;
+   long local_nb_noeuds1 = 0, local_nb_coupes1= 0, local_nb_coupes2 = 0, local_nb_noeuds2 = 0;
 
-	affich( conf );
+   while (!stop && (cpt < 50))
+   {
+	    alpha= -INFINI;
+		beta= +INFINI;
 
-	// récupérer le coup du joueur ...
-	printf("Coup (sy sx dy dx : depl normal / 0 0 0 0 : pt roq / 1 1 1 1 : grd roq / 2 niv 2 2 : estim profonde ) : ");
-	scanf(" %c %d %c %d", &sy, &sx, &dy, &dx );
+		affich( conf );
 
-	copier(&conf, &conf1);
+		printf("%d\n", cpt);
+		
+		generer_succ(conf, mode, T, &n);
+		
+		score = -INFINI*mode;
+		j = -1;
+		//Timing
+		gettimeofday(&begin, NULL);
+		#pragma omp parallel private (local_nb_noeuds2, local_nb_coupes2, local_nb_noeuds1, local_nb_coupes1) if ( 0 == 1)
+		{
+		
+			#pragma omp for  schedule (dynamic) 
+			for (i=0; i<n; i++) 
+			{
+				
+				if (mode == MAX)
+				{
 
-	// Traitement du coup du joueur ...
-	sauter = 0;
-	if (sy == '0') { // petit roque ...
-	   conf1.mat[0][4] = 0;
-	   conf1.mat[0][7] = 0;
-	   conf1.mat[0][6] = 'r'; conf1.xrB = 0; conf1.yrB = 6;
-	   conf1.mat[0][5] = 't';
-	   conf1.roqueB = 'e';
-	}
-	else
-	   if (sy == '1') {  // grand roque ...
-		conf1.mat[0][4] = 0;
-		conf1.mat[0][0] = 0;
-		conf1.mat[0][2] = 'r'; conf1.xrB = 0; conf1.yrB = 2;
-		conf1.mat[0][3] = 't';
-		conf1.roqueB = 'e';
-	   }
-	   else 
-	      if ( sy == '2' ) { // Estimation à la profondeur spécifiée dans sx
-		  cout = minmax_ab( conf, MAX, sx, -INFINI, +INFINI );
-		  printf("Estimation à %d niveaux = %d\n", sx, cout);
-		  sauter = 1;
-	      }
-	      else
-		{  // deplacement normal (les autres coups) ...
-		conf1.mat[dx-1][dy-'a'] = conf1.mat[sx-1][sy-'a'];
-		conf1.mat[sx-1][sy-'a'] = 0;
-		// vérifier possibilité de transformation d'un pion arrivé en fin d'échiquier ...
-		if (dx == 8 && conf1.mat[dx-1][dy-'a'] == 'p') {
-		   printf("Pion arrivé en ligne 8, transformer en (p/c/f/t/n) : ");
-		   scanf(" %s", ch);
-		   switch (ch[0]) {
-			case 'c' : conf1.mat[dx-1][dy-'a'] = 'c'; break;
-			case 'f' : conf1.mat[dx-1][dy-'a'] = 'f'; break;
-			case 't' : conf1.mat[dx-1][dy-'a'] = 't'; break;
-			case 'p' : conf1.mat[dx-1][dy-'a'] = 'p'; break;
-			default  : conf1.mat[dx-1][dy-'a'] = 'n';
-		   }
+					local_nb_coupes1 = 0;
+					local_nb_noeuds1 = 0;
+					//printf("thread %d iteration %d\nnb_noeuds: %ld \nlocal_nb_noeuds: %ld\n\n",omp_get_thread_num(),i, nb_noeuds1, local_nb_noeuds1);
+					cout = minmax_ab(T[i], MIN, hauteur-1, alpha, beta, &local_nb_noeuds1, &local_nb_coupes1);
+					#pragma omp critical
+					{
+						if (cout > score) 
+						{  		
+							alpha =  cout;
+							score = cout;
+							j = i;
+						}
+						nb_noeuds1 += local_nb_noeuds1;
+						nb_coupes1 += local_nb_coupes1;
+						
+					}
+				//printf("thread %d iteration %d\nnb_noeuds: %ld \nlocal_nb_noeuds: %ld\n\n",omp_get_thread_num(),i, nb_noeuds1, local_nb_noeuds1);
+
+				}
+				else
+				{
+					local_nb_coupes2 = 0;
+					local_nb_noeuds2 = 0;
+					cout = iterative_deepening(T[i], MAX, hauteur-1, alpha, beta, &local_nb_noeuds2, &local_nb_coupes2);
+					
+					#pragma omp critical
+					{
+						if ( cout < score ) 
+						{  
+							beta = cout;
+							score = cout;
+							j = i;
+						}
+						nb_coupes2 += local_nb_coupes2;
+						nb_noeuds2 += local_nb_noeuds2;
+					}
+					
+				}
+				
+			}
 		}
-		// vérifier si victoire (le roi N n'existe plus) ...
-		if ( conf1.xrN == dx-1 && conf1.yrN == dy-'a' ) {
-			conf1.xrN = -1;
-			conf1.yrN = -1;
+		gettimeofday(&end, NULL);
+		result = (double)(end.tv_usec - begin.tv_usec)/1000000 + end.tv_sec - begin.tv_sec;
+		if (mode == MAX)
+			stats1[cpt] = result;
+		else
+		{
+			stats2[cpt] = result;
+			cpt++;
 		}
-	   }
+		//Fin timing 2
 
-	if ( sauter == 0) {
 
-	   // vérification de la légalité du coup effectué par le joueur ...
-    	   generer_succ(  conf, MAX, T, &n );
-
-	   legal = 0;
-	   for (i=0; i<n && !legal; i++)
-	    	if ( egal(T[i].mat, conf1.mat) )  legal = 1;
-
-	   if ( legal && !feuille(conf1,&cout) ) {
-	    	printf("OK\n\n");
-	    	i--;
-	    	copier( &T[i], &conf );
-	    	affich( conf );
-
-		// L'ordinateur joue son coup ...
-	    	printf("A mon tour maintenant ...\n");
-	    
-	    	generer_succ(  conf, MIN, T, &n );
-	
-	    	score = +INFINI;
-	    	j = -1;
-
-	    	for (i=0; i<n; i++) {
-		   cout = minmax_ab( T[i], MAX, hauteur, -INFINI, +INFINI );
-		   if ( cout < score ) {  // Choisir le meilleur coup (c-a-d le plus petit score)
-		   	score = cout;
-		   	j = i;
-		   }
-	    	}
-	    	if ( j != -1 ) { // jouer le coup et aller à la prochaine itération ...
-	    	   copier( &T[j], &conf );
-		   conf.val = score;
-	    	}
-	    	else { // S'il n'y a pas de successeur possible, l'ordinateur à perdu
-		   printf(" *** J'ai perdu ***\n");
-		   stop = 1;
-	    	}
-	   }
-	   else
-	    	if ( !legal ) 
-	   	   printf("Coup illégal -- réessayer\n");
-	    	else
-		   stop = 1;
-	}  // if (sauter == 0)
+		if ( j != -1 ) 
+		{ // jouer le coup et aller à la prochaine itération ...
+			copier( &T[j], &conf );
+			conf.val = score;
+			//printf("score: %d\n", conf.val);
+		}
+		else 
+		{ // S'il n'y a pas de successeur possible, l'ordinateur à perdu
+			printf(" *** J'ai perdu ***\n");
+			stop = 1;
+		}
+	   mode *= -1;
+	  
    } // while
+   
+	int iiii;
+	char res[30];
+	FILE * f = fopen("results.txt", "w");
 
+	snprintf(res, 30, "%ld", nb_noeuds1);
+	fputs(res, f);
+	fputs("\n", f);
+
+	snprintf(res, 30, "%ld", nb_noeuds2);
+	fputs(res, f);
+	fputs("\n", f);
+
+
+
+	for (iiii = 0;iiii < cpt; iiii++)
+	{
+		snprintf(res, 30, "%f", stats1[iiii]);
+		fputs(res, f);
+		fputs(" ", f);
+	}
+
+	fputs("\n", f);
+	for (iiii = 0;iiii < cpt; iiii++)
+	{
+		snprintf(res, 30, "%f", stats2[iiii]);
+		fputs(res, f);
+		fputs(" ", f);
+	}
+
+	fclose(f);
+
+	return 0;
 }
-*/
+
 
