@@ -1,6 +1,17 @@
 
 # Parallelizing a chess engine
 
+## Summary
+
+One of our university chess club's project is to implement a decent chess playing engine. The co-author and I decided to take one of the engines designed by our classmates and improve it. 
+
+This notebook illustrates the steps taken towards optimizing this simple chess engine in an incremental way, starting by parallelizing it's search algorithm, then applying some optimization techniques, and finally trying out the iterative deepening variation of the classical minimax algorithm.
+
+At each step, a simulation is executed to test the performance of the improvement. A simulation is a succession of chess games played between two different versions of the engine, comparing search time between them. It does not matter which of the two engines wins, as it is not part of this work to make it play "smarter", the heuristic estimation functions for all the versions in this notebook are the same, we put the focus only on execution time.
+
+We recommend that the reader knows the minimax alpha-beta pruning algorithm in order to fully understand the challenges faced in parallelizing it, and the improvement steps taken.
+
+
 ## Introduction 
 
    One of the most classical challenges in artificial intelligence and computer science in general is chess programming. At first glance, it may appear relatively easy and straightforward compared to others problems, but when we think about it, we quickly realize that it is not easy at all given the necessity to enumerate every single possible move imaginable. If that is not enough, there exist 10 to the power of 120 (that is 1 followed by 120 zeros) possibilities. The entire universe contains nearly 10 to the power of 80 atoms! Quite a gap, isn’t it?
@@ -34,12 +45,15 @@ You can read more about lazy SMP here: https://www.duo.uio.no/bitstream/handle/1
 
 ### 3- Root splitting
 
+
 The main idea of this technique is to ensure that each node except for the root, is visited by only one processor. To keep the effect of the alpha beta pruning, we split the children nodes of the root into clusters, each cluster being served by only one thread. Each child is then processed as the root of a sub search tree that will be visited in a sequential fashion, thus respecting the alpha beta constraints. 
 When a thread finishes computing it’s subtree(s) and returns its evaluation to the root node, that evaluation is compared to the current best evaluation (that’s how minimax works), and that best evaluation may be updated. So to ensure coherent results, given that multiple threads may be returning to the root node at the same time, threads must do this part of the work in mutual exclusion: meaning that comparing to and updating the best evaluation of the root node must be inside a critical section so that it’s execution remains sequential. And that’s about everything about this algorithm!
 
 Given the time allowed for this project and the relative simplicity of implementation, we came to choose this algorithm for our project. 
 We used the openmp library to do multithreading for its simplicity and efficiency. The full implementation of the root splitting algorithm can be found on the repository. We'll just illustrate the key (changed) parts of the original C code here.
 
+
+![Root splitting](images/Root_splitting.png "Splitting the search tree at the root")
 
 We said that we parallelize at the root level, so for that we parallelize the for loop that iterates over the children of the root node for calling the minimax function on them.
 for that, we use the following two openmp directives:
@@ -167,11 +181,11 @@ def plotting(stats, old_name, new_name, depth=4):
 ```
 
 To run the simulation, we'll specify the C program name for the simulate function. The code to compile that program is on the repository. Our first C program makes the sequential engine play against the parallel one.
-Let's go with 10 games at depth 4:
+Let's go with 3 full games at depth 4:
 
 
 ```python
-stats = simulation("./seq_vs_paral", nGames=1)
+stats = simulation("src/seq_vs_paral", nGames=3)
 ```
 
 And we plot the results:
@@ -187,7 +201,7 @@ plotting(stats, "Sequential", "Root splitting")
 ```
 
 
-![png](output_11_0.png)
+![png](images/output_11_0.png)
 
 
 The parallel seems to be clearly faster at depths 3 and 4, even if the number of visited nodes is slightly higher for the parallel engine.
@@ -200,7 +214,7 @@ stats.oldGlobalMean[-1]/stats.newGlobalMean[-1]
 
 
 
-    2.0030670691601475
+    2.0005785385413235
 
 
 
@@ -223,17 +237,13 @@ Let's test it: we'll run the simulation with our second C program as a parameter
 
 
 ```python
-stats = simulation("./parallel_vs_parallel_with_reordering", nGames=1)
+stats = simulation("src/parallel_vs_parallel_with_reordering", nGames=3)
 
 plotting(stats, "Root splitting", "Root splitting + Move reordering")
 ```
 
 
-![png](output_16_0.png)
-
-
-
-    <matplotlib.figure.Figure at 0x7f4499bf8898>
+![png](images/output_16_0.png)
 
 
 Reordering the moves seems to give out worse results! But why on earth would that happen? In fact, this behavior makes sense. 
@@ -255,16 +265,12 @@ Simulation...
 
 
 ```python
-stats = simulation("./move_reorder_vs_beam_search", nGames=1)
+stats = simulation("src/move_reorder_vs_beam_search", nGames=3)
 plotting(stats, "Move reordering", "Beam search")
 ```
 
 
-![png](output_19_0.png)
-
-
-
-    <matplotlib.figure.Figure at 0x7f4499b022e8>
+![png](images/output_19_0.png)
 
 
 As expected, the execution time is reduced due to exploring less nodes, at the risk of losing some good moves due to a bad estimation. So for this technique to give good results, the estimation function must be goood (notice the extra ‘o’).
@@ -274,16 +280,12 @@ Let's now test it against the initial sequential engine:
 
 
 ```python
-stats = simulation("./sequential_vs_beam_search", nGames=1)
+stats = simulation("src/sequential_vs_beam_search", nGames=3)
 plotting(stats, "Sequential", "Beam search")
 ```
 
 
-![png](output_21_0.png)
-
-
-
-    <matplotlib.figure.Figure at 0x7f44999fa2e8>
+![png](images/output_21_0.png)
 
 
 
@@ -294,7 +296,7 @@ stats.oldGlobalMean[-1]/stats.newGlobalMean[-1]
 
 
 
-    3.407518938821006
+    3.4676852224462276
 
 
 
@@ -302,4 +304,69 @@ The speedup this time is 3.4!! That is impressive, but also expected. We're expl
 
 ## Iterative deepening
 
-Coming soon
+The iterative deepening is a variation of the minimax fixed-depth "d" search algorithm. It does the following:
+Explore at all depths from 1 to "d", and after each exploration, reorder the child nodes according to the value returned by that exploration.
+Of course this means exploring all the nodes between depth 1 and d-1 many times. This may seem redondant and time wasting, but the overhead of expanding the same nodes many times is small in comparison to growth of the exponential search tree. 
+
+At each depth explored, we get a better estimation of the child nodes, and thus a better reordering that leads to a better exploring of the tree, which generates more pruning and significantly decreases the search tree size.
+
+This technique is often preferred over other search methods for large search trees where the depth is not known, as it is for the chess search tree.
+
+Implementing the iterative deepening technique is fairly easy, here is a pseudocode that does it:
+
+for depth in range(d): <br>
+----for node in nodes: <br>
+--------node.value = minimax_alpha_beta(node, mode (MIN or MAX), alpha and beta bounds)
+----sort nodes by value
+        
+That's it! Let's give it a try
+
+
+```python
+stats = simulation("src/parallel_vs_parallel_iterative_deeepening", nGames=1)
+plotting(stats, "Parallel", "Parallel iterative deepening")
+```
+
+
+![png](images/output_25_0.png)
+
+
+The results are quite impressive! Although the execution time is clearly better, I am mainly referring to the number of explored nodes.
+It looks like the iterative deepening explored slightly less nodes than the regular minimax search. 
+But recall that the iterative deepening method explores the same nodes at many depths, so there is a lot of redundancy, and our implementation increments the number of explored nodes even if the node being explored has been seen already at a different depth! 
+
+So even if many nodes are explored many times, the total number of explored nodes (with repetitions) is less than the previous version. 
+
+This gives an idea about the HUGE reduction of the search tree size by using iterative deepening. This is what made it run faster, because otherwise it would be a lot slower that the original one, since we explore the nodes many times, and each time, re-do many of the computation that has been done already.
+
+Note that this is a very naïve implementation of the iterative deepening method. We did not implement any transposition tables (which are basically hash tables that operates like cache memory). 
+
+With the addition of transposition tables to the iterative deepening method, all the calculations done at each node (finding all the possible moves, estimating those moves,..) could be cached, and when that node is revisited for the next exploration, those cached informations are directly retrieved.
+
+This would save a lot of computation and would further reduce the execution time of the engine.
+
+## Final notes
+
+We'd like to finish this notebook by saying that this work was done mainly for learning and for fun, and because parallelizing sounded cool! Otherwise, this engine is far from being good for competition. For that it would need a complete rebuid, and an addition to a whole lot of other chess-specific techniques.
+
+Building a competitive chess engine requires a lot more work. For some, it has been their entire masters thesis to implement a decent parallel chess engine (you may find a couple theses about that in the references).
+
+Nevertheless, the engine is quite good at playing, you can download the code and/or this notebook and play around with it, by watching games between different versions at different depths. 
+
+And with some (not so hard) additional code, you can make it play against you and see if you can beat it!
+
+Contact us if you'd like to ask or say anything about this work.
+
+### Authors
+
+HENNI Mohammed  & GACI Yacine
+
+https://github.com/dz-pyrate/
+
+## References 
+
+* https://fr.slideshare.net/JamesSwafford2/jfsmasters1
+* https://www.duo.uio.no/bitstream/handle/10852/53769/master.pdf?sequence=1
+* https://pdfs.semanticscholar.org/8e1c/9f70aa4849475199e26ccd3e21c662e2d801.pdf
+* https://chessprogramming.wikispaces.com/Iterative+Deepening
+* https://chessprogramming.wikispaces.com/Minimax
