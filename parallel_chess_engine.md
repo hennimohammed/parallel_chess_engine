@@ -3,7 +3,7 @@
 
 ## Summary
 
-One of our university chess club's project is to implement a decent chess playing engine. The co-author and I decided to take one of the engines designed by our classmates and improve it. 
+One of our university chess club's project is to implement a chess playing engine. The co-author and I decided to take one of the engines designed by our classmates and improve it. 
 
 This notebook illustrates the steps taken towards optimizing this simple chess engine in an incremental way, starting by parallelizing it's search algorithm, then applying some optimization techniques, and finally trying out the iterative deepening variation of the classical minimax algorithm.
 
